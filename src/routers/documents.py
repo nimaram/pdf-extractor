@@ -1,5 +1,5 @@
-from fastapi import APIRouter, status, UploadFile, File, HTTPException, BackgroundTasks
-from core.config import UPLOAD_DIR, ALLOWED_EXTENSIONS, MAX_FILE_SIZE
+from fastapi import APIRouter, status, UploadFile, File, HTTPException
+from src.config import UPLOAD_DIR,  MAX_FILE_SIZE
 from pathlib import Path
 import shutil
 import uuid
@@ -23,19 +23,18 @@ def validate_file(file: UploadFile) -> None:
     """Validate uploaded file meets requirements"""
     if not file.content_type == "application/pdf":
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only PDF files are allowed"
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Only PDF files are allowed"
         )
-    
+
     # Check file size
     file.file.seek(0, 2)  # Seek to end
     size = file.file.tell()
     file.file.seek(0)  # Reset file pointer
-    
+
     if size > MAX_FILE_SIZE:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"File size exceeds maximum limit of {MAX_FILE_SIZE // 1_000_000}MB"
+            detail=f"File size exceeds maximum limit of {MAX_FILE_SIZE // 1_000_000}MB",
         )
 
 
@@ -55,11 +54,11 @@ async def upload_file(file: UploadFile = File(...)) -> dict:
         return {
             "message": "File uploaded successfully",
             "filename": file.filename,
-            "stored_filename": file_path.name
+            "stored_filename": file_path.name,
         }
-        
+
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Upload failed: {str(e)}"
+            detail=f"Upload failed: {str(e)}",
         )
