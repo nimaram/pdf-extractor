@@ -1,8 +1,13 @@
-from fastapi import APIRouter, status, UploadFile, File, HTTPException
-from src.config import UPLOAD_DIR,  MAX_FILE_SIZE
+from fastapi import APIRouter, Depends, status, UploadFile, File, HTTPException, Form
+from src.config import UPLOAD_DIR, MAX_FILE_SIZE
 from pathlib import Path
-import shutil
+from ..jwt_auth import current_user
+from ..db import AsyncSession, get_async_session
+from ..models.users import User
+from ..models.documents import Document
+from ..schemas.documents import DocumentResponse
 import uuid
+import shutil
 
 router = APIRouter(tags=["documents"])
 UPLOAD_DIR.mkdir(exist_ok=True)
@@ -38,8 +43,12 @@ def validate_file(file: UploadFile) -> None:
         )
 
 
-@router.post("/", status_code=status.HTTP_201_CREATED)
-async def upload_file(file: UploadFile = File(...)) -> dict:
+@router.post("/", status_code=status.HTTP_201_CREATED, response_model=DocumentResponse)
+async def upload_file(
+    file: UploadFile = File(...),
+    user: User = Depends(current_user),
+    session: AsyncSession = Depends(get_async_session),
+) -> dict:
     # TODO: background tasks? Celery?
     if not file.content_type == "application/pdf":
         raise HTTPException(
@@ -50,12 +59,17 @@ async def upload_file(file: UploadFile = File(...)) -> dict:
         validate_file(file)
         file_path = save_file(file)
 
+        document = Document(
+            filename=file.filename,
+            stored_filename=file_path.name,
+            user_id=user.id,
+        )
+
+        session.add(document)
+        await session.commit()
+
         # background_tasks.add_task(process_file, file_path)
-        return {
-            "message": "File uploaded successfully",
-            "filename": file.filename,
-            "stored_filename": file_path.name,
-        }
+        return document
 
     except Exception as e:
         raise HTTPException(

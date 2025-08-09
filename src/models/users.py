@@ -10,10 +10,15 @@ from typing import Union
 from ..db import get_async_session
 from ..dependecies import Base
 from ..schemas.users import UserCreate
+from sqlalchemy.orm import Mapped, relationship
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .documents import Document
 
 
 class User(SQLAlchemyBaseUserTableUUID, Base):
-    pass
+    documents: Mapped[list["Document"]] = relationship(back_populates="user")
 
 
 class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
