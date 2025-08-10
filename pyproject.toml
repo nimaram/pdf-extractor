@@ -13,6 +13,8 @@ dependencies = [
     "sqlalchemy>=2.0.42",
     "psycopg2>=2.9.10",
     "psycopg>=3.2.9",
+    "pytest>=8.4.1",
+    "aiosqlite>=0.21.0",
 ]
 
 [build-system]

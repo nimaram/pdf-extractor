@@ -8,6 +8,7 @@ from ..models.documents import Document
 from ..schemas.documents import DocumentResponse
 import uuid
 import shutil
+from sqlmodel import select
 
 router = APIRouter(tags=["documents"])
 UPLOAD_DIR.mkdir(exist_ok=True)
@@ -76,3 +77,38 @@ async def upload_file(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Upload failed: {str(e)}",
         )
+
+
+@router.get("/", response_model=list[DocumentResponse], dependencies=[Depends(current_user)])
+async def list_documents(
+    user: User = Depends(current_user),
+    session: AsyncSession = Depends(get_async_session),
+) -> list[Document]:
+    documents = await session.exec(select(Document).where(Document.user_id == user.id)).all()
+    return documents
+
+
+
+@router.delete("/remove/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_document(
+    document_id: int,
+    user: User = Depends(current_user),
+    session: AsyncSession = Depends(get_async_session),
+) -> None:
+    document = await session.exec(select(Document).where(Document.id == document_id, Document.user_id == user.id)).first()
+    if not document:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+    await session.delete(document)
+    await session.commit()
+
+
+@router.get("/document/{document_id}", response_model=DocumentResponse, dependencies=[Depends(current_user)])
+async def get_document(
+    document_id: int,
+    user: User = Depends(current_user),
+    session: AsyncSession = Depends(get_async_session),
+) -> Document:
+    document = await session.exec(select(Document).where(Document.id == document_id, Document.user_id == user.id)).first()
+    if not document:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+    return document
