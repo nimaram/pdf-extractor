@@ -15,6 +15,11 @@ dependencies = [
     "psycopg>=3.2.9",
     "pytest>=8.4.1",
     "aiosqlite>=0.21.0",
+    "pymupdf>=1.26.3",
+    "pdfplumber>=0.11.7",
+    "pytesseract>=0.3.13",
+    "pillow>=11.3.0",
+    "ocrmypdf>=16.10.4",
 ]
 
 [build-system]

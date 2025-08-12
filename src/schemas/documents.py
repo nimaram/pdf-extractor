@@ -3,13 +3,12 @@ from typing import Optional
 import uuid
 
 
-
 class DocumentResponse(BaseModel):
-    id: str
+    id: uuid.UUID
     filename: str
     stored_filename: str
     title: Optional[str]
-    user_id: uuid.UUID  
+    user_id: uuid.UUID
 
     class Config:
-        from_attributes = True    
+        from_attributes = True

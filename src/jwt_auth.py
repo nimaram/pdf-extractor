@@ -1,4 +1,5 @@
 from typing import Optional
+import uuid
 from fastapi_users import FastAPIUsers, BaseUserManager, UUIDIDMixin
 from fastapi_users.authentication import (
     AuthenticationBackend,
@@ -11,7 +12,7 @@ from .models.users import User, get_user_db
 SECRET = "YOUR-SECRET-KEY-HERE"
 
 
-class UserManager(UUIDIDMixin, BaseUserManager[User, int]):
+class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
     reset_password_token_secret = SECRET
     verification_token_secret = SECRET
 
@@ -37,7 +38,7 @@ async def get_user_manager(user_db=Depends(get_user_db)):
     yield UserManager(user_db)
 
 
-fastapi_users = FastAPIUsers[User, int](
+fastapi_users = FastAPIUsers[User, uuid.UUID](
     get_user_manager,
     [auth_backend],
 )

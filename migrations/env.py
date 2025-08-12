@@ -5,7 +5,7 @@ from sqlalchemy import pool
 from alembic import context
 from src.models.users import User  # noqa
 from src.models.documents import Document  # noqa
-
+from src.models.extractions import Extraction #noqa
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

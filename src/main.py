@@ -12,18 +12,16 @@ from fastapi.openapi.utils import get_openapi
 app = FastAPI()
 
 
-app.include_router(documents.router, dependencies=[Depends(current_user)], prefix="/docs", tags=["documents"])
-
-fastapi_users = FastAPIUsers[User, uuid.UUID](
-    get_user_manager,
-    [auth_backend],
+app.include_router(
+    documents.router,
+    dependencies=[Depends(current_user)],
+    prefix="/docs",
+    tags=["documents"],
 )
 
 
 app.include_router(
-    fastapi_users.get_auth_router(auth_backend),
-    prefix="/auth/jwt",
-    tags=["auth"]
+    fastapi_users.get_auth_router(auth_backend), prefix="/auth/jwt", tags=["auth"]
 )
 
 app.include_router(
