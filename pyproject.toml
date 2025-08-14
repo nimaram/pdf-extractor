@@ -20,6 +20,7 @@ dependencies = [
     "pytesseract>=0.3.13",
     "pillow>=11.3.0",
     "ocrmypdf>=16.10.4",
+    "streamlit>=1.48.1",
 ]
 
 [build-system]

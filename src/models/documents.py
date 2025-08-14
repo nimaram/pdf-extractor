@@ -48,7 +48,9 @@ class Document(Base):
 
     # Relationships
     user: Mapped["User"] = relationship(back_populates="documents")
-    extractions: Mapped[list["Extraction"]] = relationship(back_populates="document")
+    extractions: Mapped[list["Extraction"]] = relationship(
+        back_populates="document", cascade="all, delete-orphan", passive_deletes=True
+    )
     # table_extractions: Mapped[List["TableExtraction"]] = relationship(back_populates="document")
     # diagram_extractions: Mapped[List["DiagramExtraction"]] = relationship(back_populates="document")
     # statistic_extractions: Mapped[List["StatisticExtraction"]] = relationship(back_populates="document")

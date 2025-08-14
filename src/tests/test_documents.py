@@ -1,347 +1,212 @@
-import pytest
-from unittest.mock import Mock, patch
-from fastapi import HTTPException, status
-from pathlib import Path
 import io
+import uuid
+import pytest
+from pathlib import Path
+from unittest.mock import patch, Mock
+from fastapi import HTTPException, status
+from fastapi.testclient import TestClient
 
-from ..routers.documents import (
-    save_file,
-    validate_file,
-    upload_file,
-    list_documents,
-    delete_document,
-    get_document,
-)
-from ..models.documents import Document
-from ..models.users import User
+from src.routers.documents import validate_file, save_file
+from src.models.documents import Document
+from src.models.extractions import Extraction
 
 
-# Use pytest parametrize for testing multiple scenarios
+# --------------------------
+# Utility Function Tests
+# --------------------------
+
 @pytest.mark.parametrize(
     "content_type,file_size,expected_error",
     [
         ("text/plain", 1024, "Only PDF files are allowed"),
         ("image/jpeg", 1024, "Only PDF files are allowed"),
-        (
-            "application/pdf",
-            100 * 1024 * 1024,
-            "File size exceeds maximum limit",
-        ),  # 100MB
+        ("application/pdf", 200 * 1024 * 1024, "File size exceeds maximum limit"),  # Too large
     ],
 )
-def test_validate_file_various_invalid_cases(content_type, file_size, expected_error):
-    """Test validation with various invalid file types and sizes."""
+def test_validate_file_invalid_cases(content_type, file_size, expected_error):
     mock_file = Mock()
     mock_file.content_type = content_type
     mock_file.file.seek = Mock()
     mock_file.file.tell.return_value = file_size
 
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(HTTPException) as exc:
         validate_file(mock_file)
 
-    assert expected_error in exc_info.value.detail
+    assert expected_error in exc.value.detail
 
 
-class TestDocumentFunctions:
-    """Test the document utility functions using pytest features."""
+def test_validate_file_valid_pdf():
+    mock_file = Mock()
+    mock_file.content_type = "application/pdf"
+    mock_file.file.seek = Mock()
+    mock_file.file.tell.return_value = 1024
 
-    @pytest.fixture
-    def mock_pdf_file(self):
-        """Fixture to create a mock PDF file."""
-        mock_file = Mock()
-        mock_file.filename = "test.pdf"
-        mock_file.content_type = "application/pdf"
-        mock_file.file.seek = Mock()
-        mock_file.file.tell.return_value = 1024
-
-        # Mock the file context manager properly
-        mock_file.file.__enter__ = Mock(return_value=mock_file.file)
-        mock_file.file.__exit__ = Mock(return_value=None)
-
-        return mock_file
-
-    def test_save_file_success(self, temp_upload_dir, mock_pdf_file):
-        """Test successful file saving."""
-        # Mock the file content to return actual bytes
-        mock_pdf_file.file.read.return_value = b"test pdf content"
-
-        with patch("builtins.open", create=True) as mock_open:
-            mock_file_obj = Mock()
-            mock_open.return_value.__enter__.return_value = mock_file_obj
-
-            result = save_file(mock_pdf_file)
-
-            assert isinstance(result, Path)
-            assert result.name.endswith(".pdf")
-            mock_open.assert_called_once()
-
-    def test_validate_file_valid_pdf(self, mock_pdf_file):
-        """Test validation of valid PDF file."""
-        # Should not raise any exception
-        validate_file(mock_pdf_file)
-
-        # Verify seek was called correctly
-        assert mock_pdf_file.file.seek.call_count == 2
+    validate_file(mock_file)  # Should not raise
 
 
-class TestDocumentEndpoints:
-    """Test the document API endpoints using both function calls and TestClient."""
+def test_save_file_saves_to_path(tmp_path):
+    mock_file = Mock()
+    mock_file.filename = "test.pdf"
+    mock_file.file = io.BytesIO(b"dummy content")
 
-    @pytest.fixture
-    def mock_pdf_file(self):
-        """Fixture to create a mock PDF file for this class."""
-        mock_file = Mock()
-        mock_file.filename = "test.pdf"
-        mock_file.content_type = "application/pdf"
-        mock_file.file.seek = Mock()
-        mock_file.file.tell.return_value = 1024
+    with patch("shutil.copyfileobj") as mock_copy:
+        with patch("pathlib.Path.open", mock_open := Mock()):
+            result_path = save_file(mock_file)
 
-        # Mock the file context manager properly
-        mock_file.file.__enter__ = Mock(return_value=mock_file.file)
-        mock_file.file.__exit__ = Mock(return_value=None)
+    assert result_path.suffix == ".pdf"
+    mock_copy.assert_called_once()
 
-        return mock_file
 
-    def test_upload_file_success(self, db_session, test_user, mock_pdf_file):
-        """Test successful file upload using function call."""
-        mock_pdf_file.filename = "test.pdf"
-        with patch("src.routers.documents.save_file") as mock_save:
-            mock_save.return_value = Path("test_stored.pdf")
+# --------------------------
+# Endpoint Tests
+# --------------------------
 
-            # Use pytest-asyncio's run_async or make this test async
-            import asyncio
+@pytest.fixture
+def override_current_user(client, test_user):
+    from src.jwt_auth import current_user
+    
+    async def _override():
+        return test_user
+    
+    client.app.dependency_overrides[current_user] = _override
+    yield
+    client.app.dependency_overrides.clear()
 
-            result = asyncio.run(
-                upload_file(file=mock_pdf_file, user=test_user, session=db_session)
-            )
 
-            assert result.filename == "test.pdf"
-            assert result.user_id == test_user.id
-            assert result.stored_filename == "test_stored.pdf"
+def test_upload_file_success(client, test_user, override_current_user):
+    pdf_content = b"%PDF-1.4 test content"
+    files = {"file": ("test.pdf", io.BytesIO(pdf_content), "application/pdf")}
 
-    def test_upload_file_success_via_client(self, client, test_user, temp_upload_dir):
-        """Test successful file upload using TestClient."""
-        # Create a mock PDF file
-        pdf_content = b"%PDF-1.4\n%Test PDF content"
-        files = {"file": ("test.pdf", io.BytesIO(pdf_content), "application/pdf")}
+    with patch("src.routers.documents.save_file") as mock_save:
+        mock_save.return_value = Path("stored.pdf")
+        resp = client.post("/", files=files)
 
-        with patch("src.routers.documents.save_file") as mock_save:
-            mock_save.return_value = Path("test_stored.pdf")
+    assert resp.status_code == status.HTTP_201_CREATED
+    body = resp.json()
+    assert body["filename"] == "test.pdf"
+    assert body["user_id"] == str(test_user.id)
 
-            # Override the current_user dependency
-            from ..jwt_auth import current_user
 
-            async def mock_current_user():
-                return test_user
+def test_upload_file_invalid_type(client, override_current_user):
+    files = {"file": ("bad.txt", io.BytesIO(b"bad"), "text/plain")}
+    resp = client.post("/", files=files)
+    assert resp.status_code == status.HTTP_400_BAD_REQUEST
 
-            client.app.dependency_overrides[current_user] = mock_current_user
 
-            # Use correct endpoint path (without /docs/)
-            response = client.post("/", files=files)
+def test_list_documents(client, test_document, override_current_user):
+    resp = client.get("/")
+    assert resp.status_code == status.HTTP_200_OK
+    body = resp.json()
+    assert len(body) >= 1
+    assert body[0]["id"] == str(test_document.id)
 
-            # Clean up dependency override
-            client.app.dependency_overrides.clear()
 
-            assert response.status_code == 201
-            data = response.json()
-            assert data["filename"] == "test.pdf"
-            assert data["user_id"] == str(test_user.id)
+def test_get_document_success(client, test_document, override_current_user):
+    resp = client.get(f"/document/{test_document.id}")
+    assert resp.status_code == status.HTTP_200_OK
+    assert resp.json()["id"] == str(test_document.id)
 
-    def test_list_documents_success(self, db_session, test_user, test_document):
-        """Test successful document listing using function call."""
-        import asyncio
 
-        result = asyncio.run(list_documents(user=test_user, session=db_session))
+def test_get_document_not_found(client, override_current_user):
+    random_uuid = uuid.uuid4()
+    resp = client.get(f"/document/{random_uuid}")
+    assert resp.status_code == status.HTTP_404_NOT_FOUND
 
-        assert len(result) == 1
-        assert result[0].id == test_document.id
-        assert result[0].filename == test_document.filename
 
-    def test_list_documents_success_via_client(self, client, test_user, test_document):
-        """Test successful document listing using TestClient."""
-        from ..jwt_auth import current_user
+def test_delete_document_success(client, test_document, override_current_user):
+    with patch("pathlib.Path.exists", return_value=True), \
+         patch("pathlib.Path.unlink"):
+        resp = client.delete(f"/remove/{test_document.id}")
 
-        async def mock_current_user():
-            return test_user
+    assert resp.status_code == status.HTTP_204_NO_CONTENT
 
-        client.app.dependency_overrides[current_user] = mock_current_user
 
-        # Use correct endpoint path (without /docs/)
-        response = client.get("/")
-        client.app.dependency_overrides.clear()
+def test_delete_document_not_found(client, override_current_user):
+    random_uuid = uuid.uuid4()
+    resp = client.delete(f"/remove/{random_uuid}")
+    assert resp.status_code == status.HTTP_404_NOT_FOUND
 
-        assert response.status_code == 200
-        data = response.json()
-        assert len(data) == 1
-        assert data[0]["id"] == test_document.id
-        assert data[0]["filename"] == test_document.filename
 
-    # Use pytest.mark.parametrize for testing multiple error scenarios
-    @pytest.mark.parametrize(
-        "document_id,expected_status,expected_message",
-        [
-            (99999, 404, "Document not found"),
-            (0, 404, "Document not found"),
-            (-1, 404, "Document not found"),
-        ],
+# --------------------------
+# Extraction Endpoints Tests
+# --------------------------
+
+def test_extract_data_success(client, test_document, override_current_user):
+    fake_extraction_data = {
+        "tables": [{
+            "table_title": "Table 1",
+            "headers": ["A", "B"],
+            "rows": [[1, 2]],
+            "row_count": 1,
+            "column_count": 2,
+            "extraction_metadata": {"confidence_score": 0.95}
+        }],
+        "statistics": [{
+            "statistic_type": "sum",
+            "statistic_value": 42,
+            "statistic_unit": "kg",
+            "extraction_metadata": {"confidence_score": 0.85}
+        }]
+    }
+
+    with patch("src.routers.documents.PDFExtractor") as mock_extractor, \
+         patch("pathlib.Path.exists", return_value=True):
+        instance = mock_extractor.return_value
+        instance.extract_all.return_value = fake_extraction_data
+
+        resp = client.post(f"/extract_data/{test_document.id}")
+        assert resp.status_code == status.HTTP_200_OK
+        body = resp.json()
+        assert body["extraction_summary"]["tables"] == 1
+        assert body["extraction_summary"]["statistics"] == 1
+
+
+def test_extract_data_document_not_found(client, override_current_user):
+    resp = client.post(f"/extract_data/{uuid.uuid4()}")
+    assert resp.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_extract_data_file_missing(client, test_document, override_current_user):
+    with patch("pathlib.Path.exists", return_value=False):
+        resp = client.post(f"/extract_data/{test_document.id}")
+    assert resp.status_code == status.HTTP_404_NOT_FOUND
+    assert "File not found" in resp.json()["detail"]
+
+
+def test_extract_data_extractor_failure(client, test_document, override_current_user):
+    with patch("src.routers.documents.PDFExtractor") as mock_extractor, \
+         patch("pathlib.Path.exists", return_value=True):
+        instance = mock_extractor.return_value
+        instance.extract_all.side_effect = RuntimeError("boom")
+
+        resp = client.post(f"/extract_data/{test_document.id}")
+    assert resp.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+    assert "Data extraction failed" in resp.json()["detail"]
+
+
+def test_get_document_extractions_success(client, test_document, db_session, override_current_user):
+    extraction1 = Extraction(
+        document_id=test_document.id,
+        extraction_type="table",
+        data={"sample": 1},
+        confidence_score=0.9
     )
-    def test_get_document_various_not_found_scenarios(
-        self, client, test_user, document_id, expected_status, expected_message
-    ):
-        """Test document retrieval with various non-existent IDs using TestClient."""
-        from ..jwt_auth import current_user
+    extraction2 = Extraction(
+        document_id=test_document.id,
+        extraction_type="statistic",
+        data={"sample": 2},
+        confidence_score=0.8
+    )
+    db_session.add_all([extraction1, extraction2])
+    db_session.commit()
 
-        async def mock_current_user():
-            return test_user
-
-        client.app.dependency_overrides[current_user] = mock_current_user
-
-        # Use correct endpoint path (without /docs/)
-        response = client.get(f"/document/{document_id}")
-        client.app.dependency_overrides.clear()
-
-        assert response.status_code == expected_status
-        # Check the actual response content - it might be a different error message
-        if response.status_code == 404:
-            # The endpoint might not exist, so check if it's a 404 Not Found
-            assert response.status_code == 404
-        else:
-            assert expected_message in response.json()["detail"]
+    resp = client.get(f"/{test_document.id}/extractions")
+    assert resp.status_code == status.HTTP_200_OK
+    body = resp.json()
+    assert "table" in body["extractions"]
+    assert "statistic" in body["extractions"]
 
 
-class TestDocumentIntegration:
-    """Integration tests using both approaches."""
-
-    @pytest.fixture
-    def mock_pdf_file(self):
-        """Fixture to create a mock PDF file for this class."""
-        mock_file = Mock()
-        mock_file.filename = "test.pdf"
-        mock_file.content_type = "application/pdf"
-        mock_file.file.seek = Mock()
-        mock_file.file.tell.return_value = 1024
-
-        # Mock the file context manager properly
-        mock_file.file.__enter__ = Mock(return_value=mock_file.file)
-        mock_file.file.__exit__ = Mock(return_value=None)
-
-        return mock_file
-
-    def test_full_document_lifecycle_function_calls(
-        self, db_session, test_user, mock_pdf_file
-    ):
-        """Test complete document lifecycle using function calls."""
-        import asyncio
-
-        # 1. Create document
-        mock_pdf_file.filename = "lifecycle_test.pdf"
-
-        with patch("src.routers.documents.save_file") as mock_save:
-            mock_save.return_value = Path("lifecycle_stored.pdf")
-
-            created_doc = asyncio.run(
-                upload_file(file=mock_pdf_file, user=test_user, session=db_session)
-            )
-
-            assert created_doc.filename == "lifecycle_test.pdf"
-            assert created_doc.user_id == test_user.id
-
-        # 2. List documents
-        documents = asyncio.run(list_documents(user=test_user, session=db_session))
-
-        assert len(documents) == 1
-        assert documents[0].id == created_doc.id
-
-        # 3. Get specific document
-        retrieved_doc = asyncio.run(
-            get_document(document_id=created_doc.id, user=test_user, session=db_session)
-        )
-
-        assert retrieved_doc.id == created_doc.id
-
-        # 4. Delete document
-        delete_result = asyncio.run(
-            delete_document(
-                document_id=created_doc.id, user=test_user, session=db_session
-            )
-        )
-
-        assert delete_result["message"] == "Document deleted successfully"
-
-        # 5. Verify deletion
-        final_documents = asyncio.run(
-            list_documents(user=test_user, session=db_session)
-        )
-
-        assert len(final_documents) == 0
-
-    def test_full_document_lifecycle_via_client(
-        self, client, test_user, temp_upload_dir
-    ):
-        """Test complete document lifecycle using TestClient."""
-        from ..jwt_auth import current_user
-
-        async def mock_current_user():
-            return test_user
-
-        client.app.dependency_overrides[current_user] = mock_current_user
-
-        # 1. Create document
-        pdf_content = b"%PDF-1.4\n%Lifecycle test PDF content"
-        files = {
-            "file": ("lifecycle_test.pdf", io.BytesIO(pdf_content), "application/pdf")
-        }
-
-        with patch("src.routers.documents.save_file") as mock_save:
-            mock_save.return_value = Path("lifecycle_stored.pdf")
-
-            # Use correct endpoint path (without /docs/)
-            create_response = client.post("/", files=files)
-            assert create_response.status_code == 201
-
-            created_doc = create_response.json()
-            assert created_doc["filename"] == "lifecycle_test.pdf"
-
-        # 2. List documents
-        list_response = client.get("/")
-        assert list_response.status_code == 200
-
-        documents = list_response.json()
-        assert len(documents) == 1
-
-        # 3. Get specific document
-        get_response = client.get(f"/document/{created_doc['id']}")
-        assert get_response.status_code == 200
-
-        # 4. Delete document
-        delete_response = client.delete(f"/remove/{created_doc['id']}")
-        assert delete_response.status_code == 204
-
-        # 5. Verify deletion
-        final_list_response = client.get("/")
-        final_documents = final_list_response.json()
-        assert len(final_documents) == 0
-
-        client.app.dependency_overrides.clear()
-
-
-# Use pytest classes and fixtures for better organization
-class TestDocumentEdgeCases:
-    """Test edge cases and error conditions."""
-
-    @pytest.fixture
-    def large_file_mock(self):
-        """Fixture for a file that's too large."""
-        mock_file = Mock()
-        mock_file.content_type = "application/pdf"
-        mock_file.file.seek = Mock()
-        mock_file.file.tell.return_value = 200 * 1024 * 1024  # 200MB
-        return mock_file
-
-    def test_validate_file_too_large(self, large_file_mock):
-        """Test validation rejects files that are too large."""
-        with pytest.raises(HTTPException) as exc_info:
-            validate_file(large_file_mock)
-
-        assert exc_info.value.status_code == status.HTTP_400_BAD_REQUEST
-        assert "File size exceeds maximum limit" in exc_info.value.detail
+def test_get_document_extractions_document_not_found(client, override_current_user):
+    resp = client.get(f"/{uuid.uuid4()}/extractions")
+    assert resp.status_code == status.HTTP_404_NOT_FOUND

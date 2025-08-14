@@ -4,9 +4,7 @@ from fastapi import (
     status,
     UploadFile,
     File,
-    HTTPException,
-    Form,
-    BackgroundTasks,
+    HTTPException
 )
 from src.config import UPLOAD_DIR, MAX_FILE_SIZE
 from pathlib import Path
@@ -59,7 +57,6 @@ def validate_file(file: UploadFile) -> None:
 
 @router.post("/", status_code=status.HTTP_201_CREATED, response_model=DocumentResponse)
 async def upload_file(
-    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     start_extracting_after_uploading: bool = False,
     use_ocr: bool = False,
@@ -87,13 +84,8 @@ async def upload_file(
         await session.commit()
 
         if start_extracting_after_uploading:
-            background_tasks.add_task(
-                extract_data_from_document_background,
-                document.id,
-                user.id,
-                use_ocr,
-                use_advanced,
-            )
+            # TODO: implementing background tasks with Celery + RabbitMQ
+            pass
 
         return document
 
@@ -348,49 +340,4 @@ async def get_document_extractions(
     )
 
 
-async def extract_data_from_document_background(
-    document_id: str,
-    user_id: uuid.UUID,
-    use_ocr: bool = False,
-    use_advanced: bool = False,
-):
-    # This function needs to be updated to work with background tasks
-    # For now, we'll need to create a new session and get the user
-    # This is a simplified version - in production you might want to use Celery or similar
-    from ..db import get_async_session
-    from ..models.users import User
 
-    async for session in get_async_session():
-        try:
-            # Get the user
-            user_result = await session.execute(
-                sa_select(User).where(User.id == user_id)
-            )
-            user = user_result.scalar_one_or_none()
-
-            if not user:
-                print(f"User {user_id} not found for background extraction")
-                return
-
-            # Get the document
-            doc_result = await session.execute(
-                sa_select(Document).where(Document.id == document_id)
-            )
-            document = doc_result.scalars().first()
-
-            if not document:
-                print(f"Document {document_id} not found for background extraction")
-                return
-
-            # Call the extraction function
-            await extract_data_from_document(
-                document_id=uuid.UUID(document_id),
-                use_ocr=use_ocr,
-                use_advanced=use_advanced,
-                user=user,
-                session=session,
-            )
-        except Exception as e:
-            print(f"Background extraction failed: {e}")
-        finally:
-            await session.close()
