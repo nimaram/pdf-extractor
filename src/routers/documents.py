@@ -4,7 +4,8 @@ from fastapi import (
     status,
     UploadFile,
     File,
-    HTTPException
+    HTTPException,
+    Response,
 )
 from src.config import UPLOAD_DIR, MAX_FILE_SIZE
 from pathlib import Path
@@ -17,12 +18,28 @@ from ..schemas.documents import DocumentResponse
 from ..schemas.extractions import DataExtractionResponse, DocumentExtractionsResponse
 import uuid
 import shutil
+import os
+import httpx
+from typing import Tuple, Dict
 from datetime import datetime
 from sqlmodel import select
-from sqlalchemy import select as sa_select
+import pandas as pd
+from pandas import DataFrame, Series
+from textwrap import dedent
+from dotenv import load_dotenv
+from ..config import settings
+import json
+
+
+# Loading environment variables
+load_dotenv()
+
 
 router = APIRouter(tags=["documents"])
 UPLOAD_DIR.mkdir(exist_ok=True)
+
+
+#### Helper Functions ####
 
 
 def save_file(file: UploadFile) -> Path:
@@ -53,6 +70,73 @@ def validate_file(file: UploadFile) -> None:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"File size exceeds maximum limit of {MAX_FILE_SIZE // 1_000_000}MB",
         )
+
+
+def clean_extracted_content(extractions: Dict) -> Tuple[str, str]:
+    df = pd.DataFrame([e.data for e in extractions])
+    table_preview = df.head(20).to_markdown(index=False)
+    json_data = df.where(pd.notna(df), None).to_dict(orient="records")
+    json_output = json.dumps(json_data, indent=2)
+
+    print(table_preview)
+    return table_preview, json_output
+
+
+def assemble_data_analysis_prompt(table_preview: str, json_output: str) -> str:
+
+    prompt = dedent(
+        f"""
+        You are an expert data analyst. Your task is to analyze the provided data table and its statistical summary. Please explain your findings in simple, clear English, as if you were talking to a non-technical manager.
+        Here is a preview of the data table:
+        {table_preview}
+        Here is the json output of the data:
+        {json_output}
+        Based on the data provided, please answer the following questions:
+
+        1. What are the most important insights?
+            Summarize the 2-3 most significant findings or main trends from the data. What is the key story the numbers are telling?
+            Or tell that what is the main story or idea of this data/text.
+        2. Are there any anomalies?
+            Point out any data that looks unusual, surprising, or like an outlier. Briefly explain why it stands out.
+            Don't look any kind of anomalies in json ouput data.
+        3. What should we do next?
+            Recommend 1-2 practical next steps. This could be a business action, a suggestion for deeper analysis, or a data cleaning task.
+        """
+    )
+
+    return prompt
+
+
+async def generate_gemini_response(prompt: str) -> str:
+    if not settings.gemini_api_key:
+        raise ValueError("Gemini url and its needed config have not been set")
+
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(
+                settings.gemini_url,
+                headers={
+                    "Content-Type": "application/json",
+                    "x-goog-api-key": settings.gemini_api_key,
+                },
+                json={"contents": [{"role": "user", "parts": [{"text": prompt}]}]},
+                timeout=60.0,
+            )
+        except httpx.RequestError as e:
+            raise RuntimeError(
+                f"There was an error for requesting to Gemini\n Error:{e}"
+            )
+
+        if response.status_code != 200:
+            raise RuntimeError(
+                f"There was an error with Gemini\n Error:{response.text}"
+            )
+
+        gemini_result = response.json()
+        return gemini_result["candidates"][0]["content"]["parts"][0]["text"]
+
+
+#### End of Helper Functions ####
 
 
 @router.post("/", status_code=status.HTTP_201_CREATED, response_model=DocumentResponse)
@@ -204,7 +288,7 @@ async def extract_data_from_document(
 
         extractions = []
 
-        # Tables extraction - save actual table data
+        # Tables extraction - save actual table extraction
         if extraction_data.get("tables"):
             for i, table in enumerate(extraction_data["tables"]):
                 table_extraction = Extraction(
@@ -340,4 +424,37 @@ async def get_document_extractions(
     )
 
 
+@router.post("/analyze/{document_id}", dependencies=[Depends(current_user)])
+async def analyze_file_with_ai(
+    document_id: uuid.UUID,
+    user: User = Depends(current_user),
+    session: AsyncSession = Depends(get_async_session),
+):
+    selected_file_query = await session.execute(
+        select(Document).where(Document.id == document_id, Document.user_id == user.id)
+    )
+    selected_file = selected_file_query.scalar_one_or_none()
+    if not selected_file:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Document doesn't exist"
+        )
 
+    selected_extraction_query = await session.execute(
+        select(Extraction).where(Extraction.document_id == document_id)
+    )
+    selected_extraction = selected_extraction_query.scalars().all()
+    if not selected_extraction:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Extractions for this document don't exist",
+        )
+
+    table_preview, json_output = clean_extracted_content(
+        extractions=selected_extraction
+    )
+    prompt = assemble_data_analysis_prompt(
+        table_preview=table_preview, json_output=json_output
+    )
+    ai_response = await generate_gemini_response(prompt)
+
+    return ai_response

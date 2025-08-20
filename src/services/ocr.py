@@ -97,7 +97,6 @@ class PDFExtractor:
         tesseract_path: str = None,
     ) -> list[dict[str, Any]]:
         """Extract tables using pdfplumber (works better with OCR'd text)"""
-        # Use original PDF if OCR is disabled, otherwise try OCR
         if use_ocr:
             pdf_to_use = self.extract_text_with_ocr(
                 force_ocr=True, use_advanced=use_advanced, tesseract_path=tesseract_path
@@ -141,8 +140,6 @@ class PDFExtractor:
         use_advanced: bool = False,
         tesseract_path: str = None,
     ) -> list[dict[str, Any]]:
-        """Extract statistics from OCR'd text"""
-        # Use original PDF if OCR is disabled, otherwise try OCR
         if use_ocr:
             pdf_to_use = self.extract_text_with_ocr(
                 force_ocr=True, use_advanced=use_advanced, tesseract_path=tesseract_path
