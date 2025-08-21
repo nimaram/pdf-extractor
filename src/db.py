@@ -1,4 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, Session
 from collections.abc import AsyncGenerator
 from .dependecies import Base
 import os
@@ -22,3 +24,26 @@ async def create_db_and_tables():
 async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
     async with async_session_maker() as session:
         yield session
+        
+        
+# Synchronous engine
+engine = create_engine(
+    DATABASE_URL,
+    connect_args={"check_same_thread": False}  # for SQLite, safe for in-memory tests
+)
+
+# Synchronous session factory
+SessionLocal = sessionmaker(
+    bind=engine,
+    autocommit=False,
+    autoflush=False,
+    expire_on_commit=False
+)
+
+# Dependency for FastAPI (sync)
+def get_session() -> Session:
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()        

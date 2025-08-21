@@ -33,3 +33,7 @@ class DocumentExtractionsResponse(BaseModel):
     extraction_summary: Optional[dict]
     extractions: dict[str, list[ExtractionData]]
     total_extractions: int
+
+
+class AnalyzeExtractionResponse(BaseModel):
+    ai_response: str

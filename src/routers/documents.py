@@ -15,7 +15,11 @@ from ..models.users import User
 from ..models.documents import Document
 from ..models.extractions import Extraction
 from ..schemas.documents import DocumentResponse
-from ..schemas.extractions import DataExtractionResponse, DocumentExtractionsResponse
+from ..schemas.extractions import (
+    DataExtractionResponse,
+    DocumentExtractionsResponse,
+    AnalyzeExtractionResponse,
+)
 import uuid
 import shutil
 import os
@@ -424,12 +428,12 @@ async def get_document_extractions(
     )
 
 
-@router.post("/analyze/{document_id}", dependencies=[Depends(current_user)])
+@router.post("/analyze/{document_id}", dependencies=[Depends(current_user)], response_model=AnalyzeExtractionResponse)
 async def analyze_file_with_ai(
     document_id: uuid.UUID,
     user: User = Depends(current_user),
     session: AsyncSession = Depends(get_async_session),
-):
+) -> AnalyzeExtractionResponse:
     selected_file_query = await session.execute(
         select(Document).where(Document.id == document_id, Document.user_id == user.id)
     )
@@ -457,4 +461,6 @@ async def analyze_file_with_ai(
     )
     ai_response = await generate_gemini_response(prompt)
 
-    return ai_response
+    return AnalyzeExtractionResponse(
+        ai_response=ai_response
+    )
