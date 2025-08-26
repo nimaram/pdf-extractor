@@ -57,6 +57,6 @@ jobs:
 
       - name: Run tests
         env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/test_db
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: pytest -v --maxfail=1
