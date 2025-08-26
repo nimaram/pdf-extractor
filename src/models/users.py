@@ -1,5 +1,9 @@
 from collections.abc import AsyncGenerator
-from fastapi_users.db import SQLAlchemyBaseUserTableUUID, SQLAlchemyUserDatabase
+from fastapi_users.db import (
+    SQLAlchemyBaseUserTableUUID,
+    SQLAlchemyUserDatabase,
+    SQLAlchemyBaseOAuthAccountTableUUID,
+)
 from sqlalchemy.orm import DeclarativeBase
 from fastapi_users import BaseUserManager, UUIDIDMixin, InvalidPasswordException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,8 +21,14 @@ if TYPE_CHECKING:
     from .documents import Document
 
 
+class OAuthAccount(SQLAlchemyBaseOAuthAccountTableUUID, Base):
+    pass
+
 class User(SQLAlchemyBaseUserTableUUID, Base):
     documents: Mapped[list["Document"]] = relationship(back_populates="user")
+    oauth_accounts: Mapped[list[OAuthAccount]] = relationship(
+        "OAuthAccount", lazy="joined"
+    )
 
 
 class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
@@ -55,3 +65,6 @@ async def get_user_db(session: AsyncSession = Depends(get_async_session)):
 
 async def get_user_manager(user_db=Depends(get_user_db)):
     yield UserManager(user_db)
+
+async def get_user_db(session: AsyncSession = Depends(get_async_session)):
+    yield SQLAlchemyUserDatabase(session, User, OAuthAccount)

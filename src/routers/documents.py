@@ -6,6 +6,7 @@ from fastapi import (
     File,
     HTTPException,
     Response,
+    Request
 )
 from src.config import UPLOAD_DIR, MAX_FILE_SIZE
 from pathlib import Path
@@ -23,6 +24,7 @@ from ..schemas.extractions import (
 import uuid
 import shutil
 import os
+import json
 import httpx
 from typing import Tuple, Dict
 from datetime import datetime
@@ -32,8 +34,11 @@ from pandas import DataFrame, Series
 from textwrap import dedent
 from dotenv import load_dotenv
 from ..config import settings
-import json
+from slowapi.util import get_remote_address
+from slowapi import Limiter
 
+# Rate Limiter
+limiter = Limiter(key_func=get_remote_address)
 
 # Loading environment variables
 load_dotenv()
@@ -252,7 +257,9 @@ async def get_document(
     dependencies=[Depends(current_user)],
     response_model=DataExtractionResponse,
 )
+@limiter.limit("3/minute")
 async def extract_data_from_document(
+    request: Request,
     document_id: uuid.UUID,
     use_ocr: bool = False,
     use_advanced: bool = False,
@@ -429,7 +436,9 @@ async def get_document_extractions(
 
 
 @router.post("/analyze/{document_id}", dependencies=[Depends(current_user)], response_model=AnalyzeExtractionResponse)
+@limiter.limit("2/minute")
 async def analyze_file_with_ai(
+    request: Request,
     document_id: uuid.UUID,
     user: User = Depends(current_user),
     session: AsyncSession = Depends(get_async_session),

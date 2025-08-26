@@ -1,24 +1,51 @@
 import uuid
-from fastapi import FastAPI, Depends
-
+import os
+from fastapi import FastAPI, Depends, Request
+from fastapi_users import FastAPIUsers
+from fastapi.openapi.utils import get_openapi
 from .models.users import User, get_user_manager
 from .routers import documents
 from .jwt_auth import fastapi_users, auth_backend, current_active_user, current_user
-from fastapi_users import FastAPIUsers
 from .schemas.users import UserRead, UserCreate
-from fastapi.openapi.utils import get_openapi
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from .dependecies import google_oauth_client
+from .middlewares import rate_limiter
+from dotenv import load_dotenv
 
+# Loading Environmental Variables
+load_dotenv()
 
+# Rate Limiter
+limiter = Limiter(key_func=get_remote_address)
 app = FastAPI()
-
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.middleware("http")(rate_limiter)
+### Oauth2 Routers ###
 
 app.include_router(
-    documents.router,
-    dependencies=[Depends(current_user)],
-    prefix="/docs",
-    tags=["documents"],
+    fastapi_users.get_oauth_router(
+        google_oauth_client,
+        auth_backend,
+        os.getenv("OAUTH2_PASSPHRASE_SECRET"),
+        associate_by_email=True,
+        is_verified_by_default=True,
+    ),
+    prefix="/auth/google",
+    tags=["auth"],
 )
 
+app.include_router(
+    fastapi_users.get_oauth_associate_router(
+        google_oauth_client, UserRead, os.getenv("OAUTH2_PASSPHRASE_SECRET")
+    ),
+    prefix="/auth/associate/google",
+    tags=["auth"],
+)
+
+### Oauth2 Routers ###
 
 app.include_router(
     fastapi_users.get_auth_router(auth_backend), prefix="/auth/jwt", tags=["auth"]
@@ -38,27 +65,13 @@ app.include_router(
 
 
 @app.get("/")
-def read_root():
+def read_root(request: Request):
     return {"message": "Hello, and thank you for using my app!"}
 
 
-# # Authorize button in swagger docs settings
-# def custom_openapi():
-#     if app.openapi_schema:
-#         return app.openapi_schema
-#     openapi_schema = get_openapi(
-#         title="My API",
-#         version="1.0.0",
-#         description="Custom auth example",
-#         routes=app.routes,
-#     )
-#     openapi_schema["components"]["securitySchemes"]["JWTBearer"] = {
-#         "type": "http",
-#         "scheme": "bearer",
-#         "bearerFormat": "JWT",
-#     }
-#     app.openapi_schema = openapi_schema
-#     return app.openapi_schema
-
-
-# app.openapi = custom_openapi
+app.include_router(
+    documents.router,
+    dependencies=[Depends(current_user)],
+    prefix="/docs",
+    tags=["documents"],
+)
