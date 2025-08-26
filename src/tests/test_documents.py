@@ -169,9 +169,7 @@ def test_get_document_extractions_success(
     assert "table" in resp.json()["extractions"]
 
 
-def test_analyze_file_success(
-    client, test_document, db_session, override_current_user
-):
+def test_analyze_file_success(client, test_document, db_session, override_current_user):
     ext = Extraction(
         document_id=test_document.id,
         extraction_type="table",
@@ -182,9 +180,18 @@ def test_analyze_file_success(
     db_session.commit()
 
     with (
-        patch("src.routers.documents.clean_extracted_content", return_value=("TABLE", "JSON")),
-        patch("src.routers.documents.assemble_data_analysis_prompt", return_value="PROMPT"),
-        patch("src.routers.documents.generate_gemini_response", new_callable=AsyncMock, return_value="AI"),
+        patch(
+            "src.routers.documents.clean_extracted_content",
+            return_value=("TABLE", "JSON"),
+        ),
+        patch(
+            "src.routers.documents.assemble_data_analysis_prompt", return_value="PROMPT"
+        ),
+        patch(
+            "src.routers.documents.generate_gemini_response",
+            new_callable=AsyncMock,
+            return_value="AI",
+        ),
     ):
         resp = client.post(f"/docs/analyze/{test_document.id}")
 

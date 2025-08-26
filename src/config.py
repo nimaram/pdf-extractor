@@ -7,6 +7,7 @@ import os
 # Loading environmental variables
 load_dotenv()
 
+
 class Settings(BaseSettings):
     # TODO: move other setting variables to this class
     gemini_url: str = Field(env="GEMINI_URL")

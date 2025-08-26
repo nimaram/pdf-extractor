@@ -8,7 +8,7 @@ from sqlalchemy.orm import sessionmaker
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from src.main import app
-from src.db import Base, get_async_session   
+from src.db import Base, get_async_session
 from src.models.users import User
 from src.models.documents import Document
 
@@ -27,6 +27,7 @@ AsyncTestingSessionLocal = async_sessionmaker(async_engine, expire_on_commit=Fal
 @pytest.fixture(scope="session", autouse=True)
 def _setup_app():
     from src.routers import documents as documents_router
+
     app.include_router(documents_router.router, prefix="/docs", tags=["documents"])
 
 
@@ -36,7 +37,7 @@ async def db_session():
         await conn.run_sync(Base.metadata.create_all)
 
     async with AsyncTestingSessionLocal() as session:
-        yield session                       
+        yield session
 
     async with async_engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)

@@ -24,6 +24,7 @@ if TYPE_CHECKING:
 class OAuthAccount(SQLAlchemyBaseOAuthAccountTableUUID, Base):
     pass
 
+
 class User(SQLAlchemyBaseUserTableUUID, Base):
     documents: Mapped[list["Document"]] = relationship(back_populates="user")
     oauth_accounts: Mapped[list[OAuthAccount]] = relationship(
@@ -65,6 +66,7 @@ async def get_user_db(session: AsyncSession = Depends(get_async_session)):
 
 async def get_user_manager(user_db=Depends(get_user_db)):
     yield UserManager(user_db)
+
 
 async def get_user_db(session: AsyncSession = Depends(get_async_session)):
     yield SQLAlchemyUserDatabase(session, User, OAuthAccount)

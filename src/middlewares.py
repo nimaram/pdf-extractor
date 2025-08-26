@@ -10,7 +10,11 @@ LIMIT = 20
 # Custom Rate Limiter
 async def rate_limiter(request: Request, call_next):
     # Skip docs and openapi routes
-    if request.url.path.startswith("/docs") or request.url.path.startswith("/openapi") or request.url.path.startswith("/redoc"):
+    if (
+        request.url.path.startswith("/docs")
+        or request.url.path.startswith("/openapi")
+        or request.url.path.startswith("/redoc")
+    ):
         return await call_next(request)
 
     ip = request.client.host

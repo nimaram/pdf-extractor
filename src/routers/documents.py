@@ -6,7 +6,7 @@ from fastapi import (
     File,
     HTTPException,
     Response,
-    Request
+    Request,
 )
 from src.config import UPLOAD_DIR, MAX_FILE_SIZE
 from pathlib import Path
@@ -435,7 +435,11 @@ async def get_document_extractions(
     )
 
 
-@router.post("/analyze/{document_id}", dependencies=[Depends(current_user)], response_model=AnalyzeExtractionResponse)
+@router.post(
+    "/analyze/{document_id}",
+    dependencies=[Depends(current_user)],
+    response_model=AnalyzeExtractionResponse,
+)
 @limiter.limit("2/minute")
 async def analyze_file_with_ai(
     request: Request,
@@ -470,6 +474,4 @@ async def analyze_file_with_ai(
     )
     ai_response = await generate_gemini_response(prompt)
 
-    return AnalyzeExtractionResponse(
-        ai_response=ai_response
-    )
+    return AnalyzeExtractionResponse(ai_response=ai_response)
