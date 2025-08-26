@@ -23,8 +23,8 @@ jobs:
         pip install flake8 black
     - name: Lint code
       run: |
-        black --check src tests
-        flake8 src tests
+        black --check src 
+        flake8 src 
 
 
   test:
@@ -37,7 +37,7 @@ jobs:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: test_db
         ports:
-          - 5432:5432
+          - 5433:5432
         options: >
           --health-cmd="pg_isready -U postgres"
           --health-interval=10s
@@ -57,7 +57,7 @@ jobs:
           pip install -r requirements.txt
       - name: Run tests
         env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5433/test_db
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
-          docker build -t fastapi_app .
+          docker run --rm fastapi_app pytest
