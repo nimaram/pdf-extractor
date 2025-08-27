@@ -55,8 +55,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e .   # install your own package
 
+      - name: Create .env file
+        run: |
+          echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" >> .env
+          echo "GEMINI_URL=${{ secrets.GEMINI_URL }}" >> .env
+
       - name: Run tests
         env:
           DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/test_db
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_URL: ${{ secrets.GEMINI_URL }}
         run: pytest -v --maxfail=3
